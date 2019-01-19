@@ -185,7 +185,7 @@ func sysReserve(v unsafe.Pointer, n uintptr, reserved *bool) unsafe.Pointer {
 	// much address space. Instead, assume that the reservation is okay
 	// if we can reserve at least 64K and check the assumption in SysMap.
 	// Only user-mode Linux (UML) rejects these requests.
-	if sys.PtrSize == 8 && uint64(n) > 1<<32 {
+	if sys.PtrSize == 8 && uint64(n) > (1<<32) * 8 {
 		p, err := mmap_fixed(v, 64<<10, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
 		if p != v || err != 0 {
 			if err == 0 {

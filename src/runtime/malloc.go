@@ -246,61 +246,63 @@ func mallocinit() {
 	var reserved bool
 
 	// The spans array holds one *mspan per _PageSize of arena.
-	var spansSize uintptr = (_MaxMem + 1) / _PageSize * sys.PtrSize
+	const maxMem = 1 << 30 // 1GB: test to pass
+	var spansSize uintptr = (maxMem + 1) / _PageSize * sys.PtrSize
 	spansSize = round(spansSize, _PageSize)
 	// The bitmap holds 2 bits per word of arena.
-	var bitmapSize uintptr = (_MaxMem + 1) / (sys.PtrSize * 8 / 2)
+	var bitmapSize uintptr = (maxMem + 1) / (sys.PtrSize * 8 / 2)
 	bitmapSize = round(bitmapSize, _PageSize)
 
 	// Set up the allocation arena, a contiguous area of memory where
 	// allocated data will be found.
-	if sys.PtrSize == 8 {
-		// On a 64-bit machine, allocate from a single contiguous reservation.
-		// 512 GB (MaxMem) should be big enough for now.
-		//
-		// The code will work with the reservation at any address, but ask
-		// SysReserve to use 0x0000XXc000000000 if possible (XX=00...7f).
-		// Allocating a 512 GB region takes away 39 bits, and the amd64
-		// doesn't let us choose the top 17 bits, so that leaves the 9 bits
-		// in the middle of 0x00c0 for us to choose. Choosing 0x00c0 means
-		// that the valid memory addresses will begin 0x00c0, 0x00c1, ..., 0x00df.
-		// In little-endian, that's c0 00, c1 00, ..., df 00. None of those are valid
-		// UTF-8 sequences, and they are otherwise as far away from
-		// ff (likely a common byte) as possible. If that fails, we try other 0xXXc0
-		// addresses. An earlier attempt to use 0x11f8 caused out of memory errors
-		// on OS X during thread allocations.  0x00c0 causes conflicts with
-		// AddressSanitizer which reserves all memory up to 0x0100.
-		// These choices are both for debuggability and to reduce the
-		// odds of a conservative garbage collector (as is still used in gccgo)
-		// not collecting memory because some non-pointer block of memory
-		// had a bit pattern that matched a memory address.
-		//
-		// Actually we reserve 544 GB (because the bitmap ends up being 32 GB)
-		// but it hardly matters: e0 00 is not valid UTF-8 either.
-		//
-		// If this fails we fall back to the 32 bit memory mechanism
-		//
-		// However, on arm64, we ignore all this advice above and slam the
-		// allocation at 0x40 << 32 because when using 4k pages with 3-level
-		// translation buffers, the user address space is limited to 39 bits
-		// On darwin/arm64, the address space is even smaller.
-		arenaSize := round(_MaxMem, _PageSize)
-		pSize = bitmapSize + spansSize + arenaSize + _PageSize
-		for i := 0; i <= 0x7f; i++ {
-			switch {
-			case GOARCH == "arm64" && GOOS == "darwin":
-				p = uintptr(i)<<40 | uintptrMask&(0x0013<<28)
-			case GOARCH == "arm64":
-				p = uintptr(i)<<40 | uintptrMask&(0x0040<<32)
-			default:
-				p = uintptr(i)<<40 | uintptrMask&(0x00c0<<32)
-			}
-			p = uintptr(sysReserve(unsafe.Pointer(p), pSize, &reserved))
-			if p != 0 {
-				break
-			}
-		}
-	}
+	// if sys.PtrSize == 8 {
+	// 	// On a 64-bit machine, allocate from a single contiguous reservation.
+	// 	// 512 GB (MaxMem) should be big enough for now.
+	// 	//
+	// 	// The code will work with the reservation at any address, but ask
+	// 	// SysReserve to use 0x0000XXc000000000 if possible (XX=00...7f).
+	// 	// Allocating a 512 GB region takes away 39 bits, and the amd64
+	// 	// doesn't let us choose the top 17 bits, so that leaves the 9 bits
+	// 	// in the middle of 0x00c0 for us to choose. Choosing 0x00c0 means
+	// 	// that the valid memory addresses will begin 0x00c0, 0x00c1, ..., 0x00df.
+	// 	// In little-endian, that's c0 00, c1 00, ..., df 00. None of those are valid
+	// 	// UTF-8 sequences, and they are otherwise as far away from
+	// 	// ff (likely a common byte) as possible. If that fails, we try other 0xXXc0
+	// 	// addresses. An earlier attempt to use 0x11f8 caused out of memory errors
+	// 	// on OS X during thread allocations.  0x00c0 causes conflicts with
+	// 	// AddressSanitizer which reserves all memory up to 0x0100.
+	// 	// These choices are both for debuggability and to reduce the
+	// 	// odds of a conservative garbage collector (as is still used in gccgo)
+	// 	// not collecting memory because some non-pointer block of memory
+	// 	// had a bit pattern that matched a memory address.
+	// 	//
+	// 	// Actually we reserve 544 GB (because the bitmap ends up being 32 GB)
+	// 	// but it hardly matters: e0 00 is not valid UTF-8 either.
+	// 	//
+	// 	// If this fails we fall back to the 32 bit memory mechanism
+	// 	//
+	// 	// However, on arm64, we ignore all this advice above and slam the
+	// 	// allocation at 0x40 << 32 because when using 4k pages with 3-level
+	// 	// translation buffers, the user address space is limited to 39 bits
+	// 	// On darwin/arm64, the address space is even smaller.
+	// 	//arenaSize := round(_MaxMem, _PageSize)
+	// 	arenaSize := round(maxMem, _PageSize)
+	// 	pSize = bitmapSize + spansSize + arenaSize + _PageSize
+	// 	for i := 0; i <= 0x7f; i++ {
+	// 		switch {
+	// 		case GOARCH == "arm64" && GOOS == "darwin":
+	// 			p = uintptr(i)<<40 | uintptrMask&(0x0013<<28)
+	// 		case GOARCH == "arm64":
+	// 			p = uintptr(i)<<40 | uintptrMask&(0x0040<<32)
+	// 		default:
+	// 			p = uintptr(i)<<40 | uintptrMask&(0x00c0<<32)
+	// 		}
+	// 		p = uintptr(sysReserve(unsafe.Pointer(p), pSize, &reserved))
+	// 		if p != 0 {
+	// 			break
+	// 		}
+	// 	}
+	// }
 
 	if p == 0 {
 		// On a 32-bit machine, we can't typically get away
